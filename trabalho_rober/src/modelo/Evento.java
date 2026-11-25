@@ -1,4 +1,4 @@
-package eventos.modelo;
+package modelo;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import modelo.StatusEvento;
 
 /**
  * Classe abstrata que representa um evento com inscrições.
