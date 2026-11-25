@@ -1,4 +1,4 @@
-package eventos.modelo;
+package modelo;
 
 import java.util.Objects;
 

@@ -1,4 +1,4 @@
-package eventos.modelo;
+package modelo;
 
 /** Situação de uma {@link Inscricao}. */
 public enum StatusInscricao {
