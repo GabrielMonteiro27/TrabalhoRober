@@ -3,11 +3,13 @@ package persistencia;
 import excecao.SistemaEventosException;
 
 /**
- * Contrato de persistência do sistema (RF14).
- * <p>
+ * Contrato de persistência do sistema.
+ *
  * Quem usa o repositório (o {@code GerenciadorEventos}) não precisa saber
  * COMO os dados são guardados. Trocar a serialização por JSON, por exemplo,
  * seria uma nova classe que implementa esta interface, sem mudar o resto.
+ *
+ * @author Guilherme
  */
 public interface Repositorio {
 

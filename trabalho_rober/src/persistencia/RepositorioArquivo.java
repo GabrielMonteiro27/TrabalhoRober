@@ -12,7 +12,9 @@ import excecao.SistemaEventosException;
 
 /**
  * Persiste a {@link BaseDeDados} em um único arquivo ({@code dados.dat})
- * usando {@link ObjectOutputStream} e {@link ObjectInputStream} (RF14).
+ * usando {@link ObjectOutputStream} e {@link ObjectInputStream}.
+ *
+ * @author Guilherme
  */
 public class RepositorioArquivo implements Repositorio {
 

@@ -1,11 +1,14 @@
 package excecao;
 
 /**
- * Lançada ao tentar cadastrar uma entidade que já existe no sistema
- * (por exemplo, um participante ou evento com os mesmos dados de
- * identificação, como CPF ou nome).
+ * Lançada ao tentar cadastrar uma pessoa com um CPF que já existe no
+ * sistema.
+ *
+ * @author Uriel
  */
 public class CadastroDuplicadoException extends SistemaEventosException {
+
+    private static final long serialVersionUID = 1L;
 
     /**
      * Cria a exceção com a mensagem padrão.

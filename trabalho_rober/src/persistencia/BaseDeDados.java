@@ -13,10 +13,12 @@ import modelo.Pessoa;
 /**
  * Reúne TUDO que precisa ser persistido: o mapa de pessoas, a lista de eventos
  * e o contador usado por {@link #gerarCodigoEvento()}.
- * <p>
+ *
  * Como a base inteira é gravada em um único {@code writeObject}, o mesmo
  * participante, que aparece no mapa de pessoas e nas inscrições de vários
  * eventos, continua sendo UM só objeto depois de recarregar.
+ *
+ * @author Guilherme
  */
 public class BaseDeDados implements Serializable {
 

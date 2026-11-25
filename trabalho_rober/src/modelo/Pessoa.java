@@ -5,13 +5,15 @@ import java.util.Objects;
 
 /**
  * Pessoa cadastrada no sistema.
- * <p>
+ *
  * É abstrata porque só existem participantes e organizadores, nunca uma
  * "pessoa" genérica. As subclasses respondem a {@link #getTipo()} e
  * {@link #getDetalhe()} cada uma do seu jeito (polimorfismo).
- * <p>
+ *
  * O CPF identifica a pessoa: é usado em {@link #equals(Object)} e
  * {@link #hashCode()} e não pode ser alterado depois do cadastro.
+ *
+ * @author Arthur
  */
 public abstract class Pessoa implements Serializable {
 
@@ -153,7 +155,7 @@ public abstract class Pessoa implements Serializable {
 
     /**
      * Duas pessoas são iguais quando têm o mesmo CPF, seja qual for o tipo.
-     * Isso garante que não existam duas pessoas com o mesmo CPF (RN01).
+     * Isso garante que não existam duas pessoas com o mesmo CPF.
      *
      * @param obj objeto a comparar
      * @return {@code true} se for uma pessoa com o mesmo CPF

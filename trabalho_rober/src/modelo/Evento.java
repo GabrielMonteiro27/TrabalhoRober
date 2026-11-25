@@ -1,170 +1,410 @@
 package modelo;
 
+import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
-import modelo.StatusEvento;
 
 /**
- * Classe abstrata que representa um evento com inscrições.
- * A forma de acesso (local físico ou link) e o tipo são definidos pelas subclasses.
- * Eventos são comparados por data/hora ({@link Comparable}) e identificados pelo código.
+ * Evento cadastrado no sistema.
+ * É abstrata porque o evento sempre é presencial ou online. Cada subclasse
+ * diz do seu jeito como o evento é acessado ({@link #getInformacoesAcesso()})
+ * e qual é o seu tipo ({@link #getTipo()}).
+ * Cada evento guarda a lista das suas inscrições (composição), e por isso
+ * ele mesmo consegue calcular as vagas livres, os presentes e a taxa de
+ * presença.
+ * Implementa Comparable para a lista de eventos sair em ordem de data.
+ *
+ * @author Arthur
  */
-public abstract class Evento implements Comparable<Evento> {
+public abstract class Evento implements Comparable<Evento>, Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    /** Formato usado para mostrar data e hora na tela, ex.: 10/12/2026 19:00 */
+    private static final DateTimeFormatter FORMATO_DATA_HORA = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+
+    /** Formato usado para mostrar só a data, ex.: 08/12/2026 */
+    private static final DateTimeFormatter FORMATO_DATA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
     private final String codigo;
     private String titulo;
     private String descricao;
     private LocalDateTime dataHora;
     private LocalDate dataLimiteInscricao;
-    private int capacidade;
+    private int vagas;
     private StatusEvento status;
     private Organizador organizador;
-    private final List<Inscricao> inscricoes = new ArrayList<>();
+    private List<Inscricao> inscricoes = new ArrayList<>();
 
     /**
-     * Cria um evento com status {@link StatusEvento#ABERTO}.
+     * Cria um evento já com status ABERTO.
      *
-     * @param codigo              código único do evento
-     * @param titulo              título
-     * @param descricao           descrição
-     * @param dataHora            data e hora de realização
+     * @param codigo              código gerado pelo sistema (EV001, EV002...)
+     * @param titulo              título do evento
+     * @param descricao           descrição (pode ficar vazia)
+     * @param dataHora            data e hora em que o evento acontece
      * @param dataLimiteInscricao último dia para se inscrever
-     * @param capacidade          número máximo de inscritos confirmados (&gt; 0)
-     * @param organizador         responsável
+     * @param vagas               quantidade de vagas, maior que zero
+     * @param organizador         quem organiza o evento
      * @throws IllegalArgumentException se algum dado for inválido
      */
     protected Evento(String codigo, String titulo, String descricao, LocalDateTime dataHora,
-                     LocalDate dataLimiteInscricao, int capacidade, Organizador organizador) {
-        if (codigo == null || codigo.isBlank()) throw new IllegalArgumentException("Código obrigatório.");
-        if (titulo == null || titulo.isBlank()) throw new IllegalArgumentException("Título obrigatório.");
-        if (capacidade <= 0) throw new IllegalArgumentException("A capacidade deve ser maior que zero.");
-        this.dataHora = Objects.requireNonNull(dataHora, "dataHora");
-        this.dataLimiteInscricao = Objects.requireNonNull(dataLimiteInscricao, "dataLimiteInscricao");
-        if (dataLimiteInscricao.isAfter(dataHora.toLocalDate())) {
-            throw new IllegalArgumentException("O prazo de inscrição não pode ser após o evento.");
+                     LocalDate dataLimiteInscricao, int vagas, Organizador organizador) {
+        if (codigo == null || codigo.trim().isEmpty()) {
+            throw new IllegalArgumentException("O código do evento é obrigatório.");
         }
-        this.codigo = codigo.trim();
-        this.titulo = titulo.trim();
-        this.descricao = descricao == null ? "" : descricao.trim();
-        this.capacidade = capacidade;
-        this.organizador = Objects.requireNonNull(organizador, "organizador");
+        if (organizador == null) {
+            throw new IllegalArgumentException("O evento precisa de um organizador.");
+        }
+        this.codigo = codigo.trim().toUpperCase();
+        setTitulo(titulo);
+        setDescricao(descricao);
+        alterarDatas(dataHora, dataLimiteInscricao);
+        setVagas(vagas);
+        this.organizador = organizador;
         this.status = StatusEvento.ABERTO;
     }
 
-    /** @return vagas livres = capacidade − inscrições confirmadas */
+    // ----------------------------- inscrições -----------------------------
+
+    /**
+     * Conta quantas inscrições estão CONFIRMADAS (as canceladas não contam).
+     *
+     * @return número de inscrições confirmadas
+     */
+    public int getQuantidadeConfirmadas() {
+        int contador = 0;
+        for (Inscricao i : inscricoes) {
+            if (i.isConfirmada()) {
+                contador++;
+            }
+        }
+        return contador;
+    }
+
+    /**
+     * Vagas livres = total de vagas menos as inscrições confirmadas.
+     * Por isso cancelar uma inscrição já libera a vaga.
+     *
+     * @return quantidade de vagas que ainda sobram
+     */
     public int getVagasDisponiveis() {
-        long confirmadas = inscricoes.stream().filter(Inscricao::isConfirmada).count();
-        return capacidade - (int) confirmadas;
+        return vagas - getQuantidadeConfirmadas();
     }
 
     /**
-     * Indica se o evento aceita novas inscrições na data informada.
+     * Conta quantos inscritos confirmados fizeram check-in.
      *
-     * @param hoje data de referência
-     * @return {@code true} se está ABERTO, dentro do prazo e com vagas
+     * @return número de presentes
      */
-    public boolean aceitaInscricao(LocalDate hoje) {
-        return status == StatusEvento.ABERTO
-                && !hoje.isAfter(dataLimiteInscricao)
-                && getVagasDisponiveis() > 0;
+    public int getQuantidadePresentes() {
+        int contador = 0;
+        for (Inscricao i : inscricoes) {
+            if (i.isConfirmada() && i.isPresente()) {
+                contador++;
+            }
+        }
+        return contador;
     }
 
     /**
-     * Registra uma inscrição no evento.
+     * Taxa de presença em porcentagem (presentes / confirmados * 100).
      *
-     * @param i inscrição a adicionar
-     * @throws IllegalArgumentException se for nula
-     * @throws IllegalStateException    se o evento não estiver aberto, não houver vagas,
-     *                                  o prazo tiver passado ou o participante já estiver inscrito
+     * @return a taxa de 0 a 100, ou 0 se ninguém estiver inscrito
      */
-    public void adicionarInscricao(Inscricao i) {
-        if (i == null) throw new IllegalArgumentException("Inscrição não pode ser nula.");
-        if (status != StatusEvento.ABERTO) {
-            throw new IllegalStateException("Evento " + status + ": inscrições indisponíveis.");
+    public double getTaxaPresenca() {
+        int confirmadas = getQuantidadeConfirmadas();
+        if (confirmadas == 0) {
+            return 0; // pra não dividir por zero
         }
-        if (i.getData().isAfter(dataLimiteInscricao)) {
-            throw new IllegalStateException("Prazo de inscrição encerrado em " + dataLimiteInscricao + ".");
-        }
-        if (buscarInscricaoConfirmada(i.getParticipante()).isPresent()) {
-            throw new IllegalStateException(i.getParticipante().getNome() + " já está inscrito(a).");
-        }
-        if (getVagasDisponiveis() <= 0) {
-            throw new IllegalStateException("Evento lotado (" + capacidade + " vagas).");
-        }
-        inscricoes.add(i);
+        return getQuantidadePresentes() * 100.0 / confirmadas;
     }
 
     /**
-     * Procura a inscrição confirmada de um participante.
+     * Diz se o evento ainda aceita inscrições na data informada:
+     * precisa estar ABERTO e a data-limite não pode ter passado.
      *
-     * @param p participante
-     * @return a inscrição, ou vazio se não houver inscrição confirmada
+     * @param hoje data de hoje
+     * @return true se ainda dá pra se inscrever
      */
-    public Optional<Inscricao> buscarInscricaoConfirmada(Participante p) {
-        return inscricoes.stream()
-                .filter(i -> i.isConfirmada() && i.getParticipante().equals(p))
-                .findFirst();
+    public boolean inscricoesAbertas(LocalDate hoje) {
+        return status == StatusEvento.ABERTO && !hoje.isAfter(dataLimiteInscricao);
     }
 
-    /** Cancela o evento e todas as suas inscrições confirmadas. */
+    /**
+     * Procura a inscrição de um participante neste evento, confirmada ou
+     * cancelada. Usado para não duplicar inscrição.
+     *
+     * @param participante quem procurar
+     * @return a inscrição, ou um Optional vazio se ele nunca se inscreveu
+     */
+    public Optional<Inscricao> buscarInscricao(Participante participante) {
+        for (Inscricao i : inscricoes) {
+            if (i.getParticipante().equals(participante)) {
+                return Optional.of(i);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Procura a inscrição CONFIRMADA de um CPF neste evento (usado no check-in).
+     *
+     * @param cpf CPF com 11 dígitos
+     * @return a inscrição confirmada, ou um Optional vazio
+     */
+    public Optional<Inscricao> buscarInscricaoConfirmada(String cpf) {
+        for (Inscricao i : inscricoes) {
+            if (i.isConfirmada() && i.getParticipante().getCpf().equals(cpf)) {
+                return Optional.of(i);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Adiciona uma inscrição nova na lista. As regras (vagas, prazo,
+     * duplicada) são conferidas antes, no GerenciadorEventos.
+     *
+     * @param inscricao inscrição a adicionar
+     * @throws IllegalArgumentException se a inscrição for nula ou for de outro evento
+     */
+    public void adicionarInscricao(Inscricao inscricao) {
+        if (inscricao == null) {
+            throw new IllegalArgumentException("A inscrição não pode ser nula.");
+        }
+        if (!this.equals(inscricao.getEvento())) {
+            throw new IllegalArgumentException("Essa inscrição é de outro evento.");
+        }
+        inscricoes.add(inscricao);
+    }
+
+    /**
+     * Devolve só as inscrições confirmadas.
+     *
+     * @return lista nova com as inscrições confirmadas
+     */
+    public List<Inscricao> getInscricoesConfirmadas() {
+        List<Inscricao> confirmadas = new ArrayList<>();
+        for (Inscricao i : inscricoes) {
+            if (i.isConfirmada()) {
+                confirmadas.add(i);
+            }
+        }
+        return confirmadas;
+    }
+
+    /**
+     * Cancela o evento e todas as inscrições dele.
+     */
     public void cancelar() {
         status = StatusEvento.CANCELADO;
-        inscricoes.forEach(Inscricao::cancelar);
+        for (Inscricao i : inscricoes) {
+            i.cancelar();
+        }
     }
 
     /**
-     * Ordena eventos pela data/hora de realização.
+     * Se o evento estava ABERTO e a data dele já passou, ele passa a ser
+     * REALIZADO.
      *
-     * @param outro evento a comparar
-     * @return negativo, zero ou positivo conforme a data
+     * @param agora data e hora atual
      */
-    @Override
-    public int compareTo(Evento outro) { return dataHora.compareTo(outro.dataHora); }
-
-    /** @return como acessar o evento (endereço ou link) */
-    public abstract String getInformacoesAcesso();
-
-    /** @return tipo do evento (ex.: "Presencial") */
-    public abstract String getTipo();
-
-    /** @return código */
-    public String getCodigo() { return codigo; }
-    /** @return título */
-    public String getTitulo() { return titulo; }
-    /** @return descrição */
-    public String getDescricao() { return descricao; }
-    /** @return data e hora */
-    public LocalDateTime getDataHora() { return dataHora; }
-    /** @return prazo final de inscrição */
-    public LocalDate getDataLimiteInscricao() { return dataLimiteInscricao; }
-    /** @return capacidade */
-    public int getCapacidade() { return capacidade; }
-    /** @return status */
-    public StatusEvento getStatus() { return status; }
-    /** @return organizador */
-    public Organizador getOrganizador() { return organizador; }
-    /** @return visão somente leitura das inscrições */
-    public List<Inscricao> getInscricoes() { return List.copyOf(inscricoes); }
-
-    /** Iguais quando têm o mesmo código. */
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Evento)) return false;
-        return codigo.equals(((Evento) o).codigo);
+    public void atualizarStatus(LocalDateTime agora) {
+        if (status == StatusEvento.ABERTO && dataHora.isBefore(agora)) {
+            status = StatusEvento.REALIZADO;
+        }
     }
 
-    @Override
-    public int hashCode() { return codigo.hashCode(); }
+    // ------------------------------ abstratos ------------------------------
 
-    /** Representação textual sem a lista de inscrições. */
+    /**
+     * Como chegar no evento. Cada tipo responde de um jeito (polimorfismo):
+     * endereço e sala no presencial, link e plataforma no online.
+     *
+     * @return texto com as informações de acesso
+     */
+    public abstract String getInformacoesAcesso();
+
+    /**
+     * @return "Presencial" ou "Online"
+     */
+    public abstract String getTipo();
+
+    // --------------------------- getters e setters ---------------------------
+
+    /** @return o código, ex.: EV001 */
+    public String getCodigo() {
+        return codigo;
+    }
+
+    /** @return o título */
+    public String getTitulo() {
+        return titulo;
+    }
+
+    /**
+     * @param titulo novo título, não pode ficar vazio
+     * @throws IllegalArgumentException se estiver vazio
+     */
+    public void setTitulo(String titulo) {
+        if (titulo == null || titulo.trim().isEmpty()) {
+            throw new IllegalArgumentException("O título não pode ficar vazio.");
+        }
+        this.titulo = titulo.trim();
+    }
+
+    /** @return a descrição */
+    public String getDescricao() {
+        return descricao;
+    }
+
+    /** @param descricao nova descrição (se vier null fica vazia) */
+    public void setDescricao(String descricao) {
+        if (descricao == null) {
+            this.descricao = "";
+        } else {
+            this.descricao = descricao.trim();
+        }
+    }
+
+    /** @return data e hora do evento */
+    public LocalDateTime getDataHora() {
+        return dataHora;
+    }
+
+    /** @return data e hora no formato dd/MM/yyyy HH:mm */
+    public String getDataHoraFormatada() {
+        return dataHora.format(FORMATO_DATA_HORA);
+    }
+
+    /** @return só a data do evento no formato dd/MM/yyyy */
+    public String getDataFormatada() {
+        return dataHora.format(FORMATO_DATA);
+    }
+
+    /** @return o último dia para se inscrever */
+    public LocalDate getDataLimiteInscricao() {
+        return dataLimiteInscricao;
+    }
+
+    /** @return a data-limite no formato dd/MM/yyyy */
+    public String getDataLimiteFormatada() {
+        return dataLimiteInscricao.format(FORMATO_DATA);
+    }
+
+    /**
+     * Muda a data do evento e a data-limite juntas. Fica num método só porque
+     * uma depende da outra: a data-limite tem que ser até a data do evento.
+     *
+     * @param dataHora            nova data e hora do evento
+     * @param dataLimiteInscricao nova data-limite de inscrição
+     * @throws IllegalArgumentException se alguma for nula ou se a data-limite for depois do evento
+     */
+    public void alterarDatas(LocalDateTime dataHora, LocalDate dataLimiteInscricao) {
+        if (dataHora == null || dataLimiteInscricao == null) {
+            throw new IllegalArgumentException("As datas são obrigatórias.");
+        }
+        if (dataLimiteInscricao.isAfter(dataHora.toLocalDate())) {
+            throw new IllegalArgumentException("A data-limite deve ser até a data do evento.");
+        }
+        this.dataHora = dataHora;
+        this.dataLimiteInscricao = dataLimiteInscricao;
+    }
+
+    /** @return total de vagas */
+    public int getVagas() {
+        return vagas;
+    }
+
+    /**
+     * @param vagas novo total de vagas
+     * @throws IllegalArgumentException se for zero/negativo ou menor que os inscritos confirmados
+     */
+    public void setVagas(int vagas) {
+        if (vagas <= 0) {
+            throw new IllegalArgumentException("O número de vagas deve ser maior que zero.");
+        }
+        if (vagas < getQuantidadeConfirmadas()) {
+            throw new IllegalArgumentException("O evento já tem " + getQuantidadeConfirmadas()
+                    + " inscritos, não dá pra deixar menos vagas que isso.");
+        }
+        this.vagas = vagas;
+    }
+
+    /** @return o status (ABERTO, CANCELADO ou REALIZADO) */
+    public StatusEvento getStatus() {
+        return status;
+    }
+
+    /** @return quem organiza o evento */
+    public Organizador getOrganizador() {
+        return organizador;
+    }
+
+    /**
+     * @param organizador novo organizador
+     * @throws IllegalArgumentException se for nulo
+     */
+    public void setOrganizador(Organizador organizador) {
+        if (organizador == null) {
+            throw new IllegalArgumentException("O evento precisa de um organizador.");
+        }
+        this.organizador = organizador;
+    }
+
+    /** @return cópia da lista de inscrições (pra ninguém mexer na lista de fora) */
+    public List<Inscricao> getInscricoes() {
+        return new ArrayList<>(inscricoes);
+    }
+
+    // ------------------------ compareTo, equals, toString ------------------------
+
+    /**
+     * Compara pela data e hora, assim o Collections.sort deixa os eventos em
+     * ordem de data.
+     *
+     * @param outro evento a comparar
+     * @return negativo se este vem antes, positivo se vem depois, 0 se for igual
+     */
+    @Override
+    public int compareTo(Evento outro) {
+        return this.dataHora.compareTo(outro.dataHora);
+    }
+
+    /**
+     * Dois eventos são iguais se tiverem o mesmo código.
+     *
+     * @param obj objeto a comparar
+     * @return true se tiver o mesmo código
+     */
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (!(obj instanceof Evento)) return false;
+        Evento outro = (Evento) obj;
+        return codigo.equals(outro.codigo);
+    }
+
+    /** @return hash pelo código, igual ao equals */
+    @Override
+    public int hashCode() {
+        return codigo.hashCode();
+    }
+
+    /**
+     * ATENÇÃO: aqui não pode imprimir a lista de inscrições, porque o
+     * toString da Inscricao imprime o evento. Um chamando o outro dava
+     * StackOverflowError.
+     *
+     * @return código, título, data, tipo e status
+     */
     @Override
     public String toString() {
-        return getTipo() + "{codigo='" + codigo + "', titulo='" + titulo + "', dataHora=" + dataHora
-                + ", limiteInscricao=" + dataLimiteInscricao + ", capacidade=" + capacidade
-                + ", status=" + status + ", organizador=" + organizador + "}";
+        return codigo + " - " + titulo + " (" + getDataHoraFormatada() + ") - " + getTipo() + " - " + status;
     }
 }
